@@ -139,7 +139,6 @@ main();
 
 
 // TODO
-// - Set up git repo
 // - Add error handling to fetch title - if none found then set error reason to TITLE + error tesxt maybe?
 // - Add error handling to fetch html - if none found then set error reason to HTML + error tesxt maybe?
 // - Add error handling to teams and Coords (multi part, covered below. Not exhasutive)
