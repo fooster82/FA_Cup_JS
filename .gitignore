@@ -2,4 +2,3 @@ node_modules
 data.db
 .env
 playground/data
-playground/wikiQuery.js
