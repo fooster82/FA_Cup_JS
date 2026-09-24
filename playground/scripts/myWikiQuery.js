@@ -81,33 +81,35 @@ async function fetchCoords(groundName, teamHtml, teamName) {
 // Fetch the name of the ground from wikipedia using the team name
 async function fetchGround(teamName) {
     const teamTitle = await fetchTitle(teamName);
-    // if (!teamTitle) return { team, ground: null, latitude: null, longitude: null, error: 'TITLE: no Wikipedia page found' };
+    if (!teamTitle) return { teamHtml: null, ground: null, outcome: "FAIL", message: 'fetchTitle: no Wiki Title found' };
 
     const teamHtml = await fetchHtml(teamTitle); 
+    if (!teamHtml) return { teamHtml: null, ground: null, outcome: "FAIL", message: 'fetchHtml: no Wiki page found for Wiki Title: ' + teamTitle };
 
     const cheerio = require('cheerio');
 
     const $ = cheerio.load(teamHtml);
 
-    const ground = $('.infobox')
+    const groundText = $('.infobox')
         .find('th.infobox-label')
         .filter((i, el) => ["Ground", "Stadium", "ground", "stadium"].includes($(el).text().trim()))
         .next('td.infobox-data')
-        .text();
+        .text()
+        .trim();
+    
+    const ground = groundText ? groundText : null;
 
-    return { ground, teamHtml };
-}
-
+    return ground ? { teamHtml, ground, outcome: "IN PROGRESS", message: 'teamHtml and ground have been found, moving on to Coords' } : { teamHtml, ground: null, outcome: "FAIL", message: 'fetchGround: no ground found on team Wiki page for Wiki Title: ' + teamTitle };
+};
 
 // The actual running of the queries
 async function run(team) {
-    const { ground, teamHtml } = await fetchGround(team);
+    const groundResult = await fetchGround(team);
+    if (!groundResult.ground) return { team, ground: groundResult.ground, latitude: null, longitude: null, outcome: groundResult.outcome, message: groundResult.message };
 
-    const coords = await fetchCoords(ground, teamHtml, team)
+    const coordsResult = await fetchCoords(groundResult.ground, groundResult.teamHtml, team);
     
-    const teamValues = { team, ground, "latitude": coords[0], "longitude": coords[1] }
-
-    return teamValues;
+    return { team, ground: groundResult.ground, latitude: coordsResult.latitude, longitude: coordsResult.longitude, outcome: coordsResult.outcome, message: coordsResult.message };
 };
 
 
@@ -118,8 +120,8 @@ async function main() {
 
     const limit = pLimit(5); // 5 concurrent requests
 
-    const teamNames = ["Arsenal FC", "Charlton Athletic", "Aston Villa", "Redhill FC", "Bottesford Town F.C.", "Ashton United FC"]
-    // const teamNames = ["Charlton Athletic"];
+    // const teamNames = ["Arsenal FC", "Charlton Athletic", "Aston Villa", "Redhill FC", "Bottesford Town F.C.", "Ashton United FC"]
+    const teamNames = ["Charlton Athletisdfasdfsfsdafgaghaserfesfsdfc"];
 
     const results = await Promise.all(
         teamNames.map(name => limit(() => run(name)))
@@ -139,12 +141,8 @@ main();
 
 
 // TODO
-// - Add error handling to fetch title - if none found then set error reason to TITLE + error tesxt maybe?
-// - Add error handling to fetch html - if none found then set error reason to HTML + error tesxt maybe?
 // - Add error handling to teams and Coords (multi part, covered below. Not exhasutive)
-// -- Add error handling to ground fetching - if none found then set error reason to GROUND + error tesxt maybe?
 // -- Add error handling to latitude/longitude fetching - if none found then set error reason to COORDS + error tesxt maybe? / maybe split these two up?
-// - Results need an error section added - error 'title' and reason maybe? (default will be needed, either N/A or null or just Success)
 // - Results need a section adding as to where the coord detail was found
 // - Add reasonable coord check, is it in the UK - can be a function - if failed then set error reason to COORDS + generic error text we write
 // - Add ground name check that removes e.g. ', Southend'
