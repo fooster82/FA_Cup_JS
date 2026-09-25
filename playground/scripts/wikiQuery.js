@@ -3,8 +3,12 @@
 //// They will also be added raw to wiki-query-results.json. The success routes will be trimmed to contain just team/ground/lat/lng to wiki-query-success.json, and the failed will go raw to wiki-query-failed.json
 
 const HEADERS = {
-  'User-Agent': 'FACupGroundsScript/1.0 (fooster@sky.com)'
+  'User-Agent': 'FACupGroundsScript/1.0 (fooster@sky.com)',
+  'Accept-Encoding': 'gzip'
 };
+
+// Simple function to slow down requests
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Formats the coords and then verifys they exist
 function parseCoords (coordsHtml) {
@@ -25,8 +29,12 @@ function coordsUkPlausible (coords) {
 async function fetchTitle (name) {
     const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(name)}&srlimit=1&format=json`;
     const res = await fetch(url, { headers: HEADERS });
-    if (!res.ok) return null;
-    
+    if (!res.ok) {
+        console.log(`fetchTitle FAILED for "${name}: HTTP ${res.status} ${res.statusText}`);
+        if (res.status === 429) await sleep(10000);
+        return null;
+    }
+
     const data = await res.json();
     const result = data.query.search[0];
 
@@ -39,7 +47,11 @@ async function fetchTitle (name) {
 async function fetchHtml (title) {
     const url = `https://en.wikipedia.org/api/rest_v1/page/html/${encodeURIComponent(title)}`
     const res = await fetch(url, { headers: HEADERS });
-    if (!res.ok) return null;
+    if (!res.ok) {
+        console.log(`fetchHtml FAILED for "${title}: HTTP ${res.status} ${res.statusText}`);
+        if (res.status === 429) await sleep(10000);
+        return null;
+    }
 
     const data = await res.text();
 
@@ -132,12 +144,17 @@ async function fetchGround(teamName) {
 
 // The actual running of the queries
 async function run(team) {
-    const groundResult = await fetchGround(team);
-    if (!groundResult.ground) return { team, ground: groundResult.ground, latitude: null, longitude: null, outcome: groundResult.outcome, message: groundResult.message };
+    try {
+        await sleep(2000);
+        const groundResult = await fetchGround(team);
+        if (!groundResult.ground) return { team, ground: groundResult.ground, latitude: null, longitude: null, outcome: groundResult.outcome, message: groundResult.message };
 
-    const coordsResult = await fetchCoords(groundResult.ground, groundResult.teamHtml, team);
-    
-    return { team, ground: groundResult.ground, latitude: coordsResult.latitude, longitude: coordsResult.longitude, outcome: coordsResult.outcome, message: coordsResult.message };
+        const coordsResult = await fetchCoords(groundResult.ground, groundResult.teamHtml, team);
+        
+        return { team, ground: groundResult.ground, latitude: coordsResult.latitude, longitude: coordsResult.longitude, outcome: coordsResult.outcome, message: coordsResult.message };
+    } catch (err) {
+        return { team, ground: null, latitude: null, longitude: null, outcome: "FAIL", message: "run: Error caught - " + err.message};
+    }
 };
 
 
@@ -146,16 +163,18 @@ async function main() {
     const fs = require('fs');
     const path = require('path');
 
-    console.time('Total run time:');
+    const outputDir = path.join(__dirname, '..', 'data');
+
+    console.time('Total run time');
     const pLimit = require('p-limit');
 
-    const limit = pLimit(5); // 5 concurrent requests
+    const limit = pLimit(3); // 3 concurrent requests
 
-    // const teamsToLookup = fs.readFileSync('../data/teams.csv', 'utf8');
-    // teamNames = teamsToLookup.trim().split(/\r?\n/);
+    const teamsToLookup = fs.readFileSync(path.join(outputDir, 'teams.csv'), 'utf8');
+    const teamNames = teamsToLookup.trim().split(/\r?\n/);
 
-    const teamNames = ["Arsenal FC", "Charlton Athletic", "Aston Villa", "Redhill FC", "Atherstone Town CFC", "Ashton United FC"]
-    // const teamNames = ["Charlton Athletisdfasdfsfsdafgaghaserfesfsdfc"];
+    // const teamNames = ["Arsenal FC", "Charlton Athletic", "Aston Villa", "Redhill FC", "Atherstone Town CFC", "Ashton United FC"]
+    // const teamNames = ["Atherstone Town FC"];
 
     const totalNumTeams = teamNames.length;
     let completedCount = 0;
@@ -175,15 +194,33 @@ async function main() {
         )
     );
 
-    const outputDir = path.join(__dirname, '..', 'data');
-    fs.mkdirSync(outputDir, { recursive: true }); // creates the folder if it doesn't already exist; no-op if it does
- 
-    fs.writeFileSync(path.join(outputDir, 'wiki-query-results.json'), JSON.stringify(results, null, 2));
+    const trimmedResults = results.map(team => {
+        return {
+            team: team.team,
+            ground: team.ground,
+            latitude: team.latitude,
+            longitude: team.longitude
+        }
+    });
+
+    let successResults = [];
+    let failedResults = [];
+
+    results.map(team => {
+        if (team.outcome === "SUCCESS") successResults.push(team);
+        else if (team.outcome === "FAIL") failedResults.push(team);
+        else console.log(team+" has not been added to either success or failed file!");
+    });
+
+    fs.writeFileSync(path.join(outputDir, 'wiki-query-results.json'), JSON.stringify(results, null, 2)); // file containing the raw results
+    fs.writeFileSync(path.join(outputDir, 'wiki-query-trimmed.json'), JSON.stringify(trimmedResults, null, 2)); // file containing the name/ground/lat/lng only
+    fs.writeFileSync(path.join(outputDir, 'wiki-query-success.json'), JSON.stringify(successResults, null, 2)); // file containing all teams that were successfully fully fetched
+    fs.writeFileSync(path.join(outputDir, 'wiki-query-failed.json'), JSON.stringify(failedResults, null, 2)); // file containing all teams that were not successfully fully fetched
 
     console.log(`\n✅ Total success count: ${successCount}`);
     console.log(`❌ Total failure count: ${failCount}`);
     console.log(`⚽ Total teams checked: ${completedCount}\n`);
-    console.timeEnd('Total run time:');
+    console.timeEnd('Total run time');
     
     return results;
 };
@@ -193,6 +230,5 @@ main();
 
 
 // TODO
-// - Include the trimming / missing data functions in here to spit out a few files (wiki-query-results / wiki-query-trimmed / wiki-query-missing)
-// - Atherstone Town CFC has returned the title of its 2024-35 league for its ground name, investigate this
+// - Run it!
 // - Add tests
