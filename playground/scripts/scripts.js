@@ -34,7 +34,7 @@ button.addEventListener("click", function() {
 
 
 
-//// API testing ground
+//// API testing ground for grabbing data
 async function apiTest(teamName) {
     const res = await fetch(`https://v3.football.api-sports.io/venues?id=${teamName}`, {
         headers: {

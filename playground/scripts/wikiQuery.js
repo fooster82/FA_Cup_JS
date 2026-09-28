@@ -72,11 +72,12 @@ async function fetchCoords(groundName, teamHtml, teamName) {
     if (teamPageCoords) {
         const parsedCoords = parseCoords(teamPageCoords);
         if (!parsedCoords) {
-            coordsCheck = "teamPage, failed formatting check";
+            coordsCheck = coordsCheck === "No" ? "teamPage, failed formatting check" : coordsCheck + "; teamPage, failed formatting check";
         } else {
             const ukVerifiedCoords = coordsUkPlausible(parsedCoords);
             if (ukVerifiedCoords) return { latitude: parsedCoords.lat, longitude: parsedCoords.lng, outcome: "SUCCESS", message: "fetchCoords: Coords found on team Wiki page" };
-            coordsCheck = coordsCheck + "; teamPage, failed UK check";
+            coordsCheck = coordsCheck === "No" ? "teamPage, failed UK check" : coordsCheck + "; teamPage, failed UK check";
+            // Should probably end here and return a null ground, no point checking the page if the coords are out of bounds
         }
     }
 
@@ -106,12 +107,14 @@ async function fetchCoords(groundName, teamHtml, teamName) {
     if (groundPageCoords) {
         const parsedCoords = parseCoords(groundPageCoords);
         if (!parsedCoords) {
-            coordsCheck = coordsCheck + "; groundPage, failed formatting check";
+            coordsCheck = coordsCheck === "No" ? "groundPage, failed formatting check" : coordsCheck + "; groundPage, failed formatting check";
         } else {
             const ukVerifiedCoords = coordsUkPlausible(parsedCoords);
             if (ukVerifiedCoords) return { latitude: parsedCoords.lat, longitude: parsedCoords.lng, outcome: "SUCCESS", message: "fetchCoords: Coords found on ground Wiki page" };
-            coordsCheck = coordsCheck + "; groundPage, failed UK check";
-        }    }
+            coordsCheck = coordsCheck === "No" ? "groundPage, failed UK check" : coordsCheck + "; groundPage, failed UK check";
+            // Should probably end here and return a null ground, no point checking the page if the coords are out of bounds
+        }    
+    }
 
     // Failure route, no coords on either the team or ground page
     return { latitude: null, longitude: null, outcome: "FAIL", message: "fetchCoords: Coords not on team Wiki page nor ground Wiki page. Were Coords ever checked? " + coordsCheck };
@@ -196,7 +199,7 @@ async function main() {
 
     const trimmedResults = results.map(team => {
         return {
-            team: team.team,
+            name: team.team,
             ground: team.ground,
             latitude: team.latitude,
             longitude: team.longitude
@@ -230,5 +233,8 @@ main();
 
 
 // TODO
-// - Run it!
+// - Add the commented lines about cancelling out of fetchCoords if coordCheck fails UK verification
+// - Add a bit to fetch from title where check if title contains 'FC' if failed and try again with it appeneded if not
+// - Where _(stadium) is checked on ambig pages, also check for _(PLACE NAME) e.g. (chorley)
+// - Add a flag to ground name, if its too big mark it as failed but keep all info (for a manual inspection)
 // - Add tests
